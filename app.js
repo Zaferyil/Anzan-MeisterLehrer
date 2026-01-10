@@ -943,6 +943,411 @@ loadTasksFromStorage();
 
 window.addEventListener('DOMContentLoaded', loadSoundPreference);
 
+// ============================================
+// JOIN DOTS (CONNECT FOUR) GAME
+// ============================================
+
+let joinDotsState = {
+    board: Array(6).fill().map(() => Array(7).fill(null)),
+    currentPlayer: 'red', // red = human, yellow = AI
+    gameOver: false,
+    difficulty: 'medium',
+    winningCells: [],
+    lastMove: null
+};
+
+function showJoinDots() {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('joinDotsScreen').classList.add('active');
+    document.getElementById('joinDotsMenu').style.display = 'flex';
+    document.getElementById('joinDotsGame').style.display = 'none';
+    document.getElementById('joinDotsGameOver').style.display = 'none';
+}
+
+function startJoinDots(difficulty) {
+    joinDotsState.difficulty = difficulty;
+    joinDotsState.board = Array(6).fill().map(() => Array(7).fill(null));
+    joinDotsState.currentPlayer = 'red';
+    joinDotsState.gameOver = false;
+    joinDotsState.winningCells = [];
+    joinDotsState.lastMove = null;
+
+    document.getElementById('joinDotsMenu').style.display = 'none';
+    document.getElementById('joinDotsGame').style.display = 'block';
+    document.getElementById('joinDotsGameOver').style.display = 'none';
+
+    renderJoinDotsBoard();
+    updateJoinDotsStatus();
+}
+
+function renderJoinDotsBoard() {
+    const boardEl = document.getElementById('joinDotsBoard');
+    boardEl.innerHTML = '';
+
+    for (let col = 0; col < 7; col++) {
+        const columnEl = document.createElement('div');
+        columnEl.className = 'join-dots-column';
+        columnEl.onclick = () => handleJoinDotsColumnClick(col);
+
+        for (let row = 0; row < 6; row++) {
+            const cellEl = document.createElement('div');
+            cellEl.className = 'join-dots-cell';
+
+            const cellValue = joinDotsState.board[row][col];
+            if (cellValue) {
+                cellEl.classList.add(cellValue);
+            }
+
+            if (joinDotsState.winningCells.some(([r, c]) => r === row && c === col)) {
+                cellEl.classList.add('winning');
+            }
+
+            if (joinDotsState.lastMove && joinDotsState.lastMove.row === row && joinDotsState.lastMove.col === col) {
+                cellEl.classList.add('last-move');
+            }
+
+            columnEl.appendChild(cellEl);
+        }
+
+        boardEl.appendChild(columnEl);
+    }
+}
+
+function handleJoinDotsColumnClick(col) {
+    if (joinDotsState.gameOver || joinDotsState.currentPlayer !== 'red') {
+        return;
+    }
+
+    const row = getAvailableRowJoinDots(col);
+    if (row === -1) {
+        return;
+    }
+
+    makeJoinDotsMove(row, col, 'red');
+
+    if (!joinDotsState.gameOver) {
+        joinDotsState.currentPlayer = 'yellow';
+        updateJoinDotsStatus();
+
+        setTimeout(() => {
+            makeAIMove();
+        }, 500);
+    }
+}
+
+function makeJoinDotsMove(row, col, player) {
+    joinDotsState.board[row][col] = player;
+    joinDotsState.lastMove = { row, col };
+
+    const winner = checkJoinDotsWinner(row, col);
+    if (winner) {
+        joinDotsState.gameOver = true;
+        showJoinDotsGameOver(winner);
+    } else if (isBoardFullJoinDots()) {
+        joinDotsState.gameOver = true;
+        showJoinDotsGameOver('draw');
+    }
+
+    renderJoinDotsBoard();
+    updateJoinDotsStatus();
+}
+
+function getAvailableRowJoinDots(col) {
+    for (let row = 5; row >= 0; row--) {
+        if (joinDotsState.board[row][col] === null) {
+            return row;
+        }
+    }
+    return -1;
+}
+
+function checkJoinDotsWinner(row, col) {
+    const player = joinDotsState.board[row][col];
+    if (!player) return null;
+
+    const directions = [
+        [[0, 1], [0, -1]],  // horizontal
+        [[1, 0], [-1, 0]],  // vertical
+        [[1, 1], [-1, -1]], // diagonal \
+        [[1, -1], [-1, 1]]  // diagonal /
+    ];
+
+    for (const [dir1, dir2] of directions) {
+        const cells = [[row, col]];
+
+        for (const [dr, dc] of [dir1, dir2]) {
+            let r = row + dr;
+            let c = col + dc;
+            while (r >= 0 && r < 6 && c >= 0 && c < 7 && joinDotsState.board[r][c] === player) {
+                cells.push([r, c]);
+                r += dr;
+                c += dc;
+            }
+        }
+
+        if (cells.length >= 4) {
+            joinDotsState.winningCells = cells;
+            return player;
+        }
+    }
+
+    return null;
+}
+
+function isBoardFullJoinDots() {
+    return joinDotsState.board[0].every(cell => cell !== null);
+}
+
+function makeAIMove() {
+    if (joinDotsState.gameOver) return;
+
+    let col;
+    if (joinDotsState.difficulty === 'easy') {
+        col = getAIMoveEasy();
+    } else if (joinDotsState.difficulty === 'medium') {
+        col = getAIMoveMedium();
+    } else {
+        col = getAIMoveHard();
+    }
+
+    const row = getAvailableRowJoinDots(col);
+    if (row !== -1) {
+        makeJoinDotsMove(row, col, 'yellow');
+        if (!joinDotsState.gameOver) {
+            joinDotsState.currentPlayer = 'red';
+            updateJoinDotsStatus();
+        }
+    }
+}
+
+function getAIMoveEasy() {
+    // Easy: Random move with slight preference for center
+    const validCols = [];
+    for (let col = 0; col < 7; col++) {
+        if (getAvailableRowJoinDots(col) !== -1) {
+            validCols.push(col);
+            if (col === 3) {
+                validCols.push(col); // Add center twice for preference
+            }
+        }
+    }
+    return validCols[Math.floor(Math.random() * validCols.length)];
+}
+
+function getAIMoveMedium() {
+    // Medium: Check for winning move, then blocking move, then center preference
+
+    // Check for winning move
+    for (let col = 0; col < 7; col++) {
+        const row = getAvailableRowJoinDots(col);
+        if (row !== -1) {
+            joinDotsState.board[row][col] = 'yellow';
+            const winner = checkJoinDotsWinner(row, col);
+            joinDotsState.board[row][col] = null;
+            if (winner === 'yellow') {
+                return col;
+            }
+        }
+    }
+
+    // Check for blocking move
+    for (let col = 0; col < 7; col++) {
+        const row = getAvailableRowJoinDots(col);
+        if (row !== -1) {
+            joinDotsState.board[row][col] = 'red';
+            const winner = checkJoinDotsWinner(row, col);
+            joinDotsState.board[row][col] = null;
+            if (winner === 'red') {
+                return col;
+            }
+        }
+    }
+
+    // Center preference
+    const centerPriority = [3, 2, 4, 1, 5, 0, 6];
+    for (const col of centerPriority) {
+        if (getAvailableRowJoinDots(col) !== -1) {
+            return col;
+        }
+    }
+
+    return 0;
+}
+
+function getAIMoveHard() {
+    // Hard: Use minimax with alpha-beta pruning
+    const depth = 6; // Look ahead 6 moves
+    let bestScore = -Infinity;
+    let bestCol = 3;
+
+    for (let col = 0; col < 7; col++) {
+        const row = getAvailableRowJoinDots(col);
+        if (row !== -1) {
+            joinDotsState.board[row][col] = 'yellow';
+            const score = minimax(joinDotsState.board, depth - 1, false, -Infinity, Infinity);
+            joinDotsState.board[row][col] = null;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestCol = col;
+            }
+        }
+    }
+
+    return bestCol;
+}
+
+function minimax(board, depth, isMaximizing, alpha, beta) {
+    // Check terminal states
+    const score = evaluateBoard(board);
+    if (score !== 0 || depth === 0 || isBoardFullMinimaxJoinDots(board)) {
+        return score;
+    }
+
+    if (isMaximizing) {
+        let maxScore = -Infinity;
+        for (let col = 0; col < 7; col++) {
+            const row = getAvailableRowMinimaxJoinDots(board, col);
+            if (row !== -1) {
+                board[row][col] = 'yellow';
+                const score = minimax(board, depth - 1, false, alpha, beta);
+                board[row][col] = null;
+                maxScore = Math.max(maxScore, score);
+                alpha = Math.max(alpha, score);
+                if (beta <= alpha) break; // Alpha-beta pruning
+            }
+        }
+        return maxScore;
+    } else {
+        let minScore = Infinity;
+        for (let col = 0; col < 7; col++) {
+            const row = getAvailableRowMinimaxJoinDots(board, col);
+            if (row !== -1) {
+                board[row][col] = 'red';
+                const score = minimax(board, depth - 1, true, alpha, beta);
+                board[row][col] = null;
+                minScore = Math.min(minScore, score);
+                beta = Math.min(beta, score);
+                if (beta <= alpha) break; // Alpha-beta pruning
+            }
+        }
+        return minScore;
+    }
+}
+
+function evaluateBoard(board) {
+    // Check for wins
+    for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 7; col++) {
+            if (board[row][col]) {
+                const winner = checkWinnerAtPos(board, row, col);
+                if (winner === 'yellow') return 1000;
+                if (winner === 'red') return -1000;
+            }
+        }
+    }
+
+    // Evaluate position (prefer center, count threats)
+    let score = 0;
+
+    // Center column preference
+    for (let row = 0; row < 6; row++) {
+        if (board[row][3] === 'yellow') score += 3;
+        if (board[row][3] === 'red') score -= 3;
+    }
+
+    return score;
+}
+
+function checkWinnerAtPos(board, row, col) {
+    const player = board[row][col];
+    if (!player) return null;
+
+    const directions = [
+        [[0, 1], [0, -1]],
+        [[1, 0], [-1, 0]],
+        [[1, 1], [-1, -1]],
+        [[1, -1], [-1, 1]]
+    ];
+
+    for (const [dir1, dir2] of directions) {
+        let count = 1;
+
+        for (const [dr, dc] of [dir1, dir2]) {
+            let r = row + dr;
+            let c = col + dc;
+            while (r >= 0 && r < 6 && c >= 0 && c < 7 && board[r][c] === player) {
+                count++;
+                r += dr;
+                c += dc;
+            }
+        }
+
+        if (count >= 4) {
+            return player;
+        }
+    }
+
+    return null;
+}
+
+function getAvailableRowMinimaxJoinDots(board, col) {
+    for (let row = 5; row >= 0; row--) {
+        if (board[row][col] === null) {
+            return row;
+        }
+    }
+    return -1;
+}
+
+function isBoardFullMinimaxJoinDots(board) {
+    return board[0].every(cell => cell !== null);
+}
+
+function updateJoinDotsStatus() {
+    const statusEl = document.getElementById('joinDotsStatus');
+    if (joinDotsState.gameOver) {
+        statusEl.textContent = '';
+    } else if (joinDotsState.currentPlayer === 'red') {
+        statusEl.textContent = '🔴 Senin Sıran';
+    } else {
+        statusEl.textContent = '🟡 AI Düşünüyor...';
+    }
+}
+
+function showJoinDotsGameOver(winner) {
+    document.getElementById('joinDotsGame').style.display = 'none';
+    document.getElementById('joinDotsGameOver').style.display = 'block';
+
+    const resultEl = document.getElementById('joinDotsResult');
+    if (winner === 'draw') {
+        resultEl.textContent = '🤝 Berabere!';
+        resultEl.style.color = '#FFD54F';
+    } else if (winner === 'red') {
+        resultEl.textContent = '🎉 Kazandın!';
+        resultEl.style.color = '#66BB6A';
+        playSuccessSound();
+        createConfetti();
+    } else {
+        resultEl.textContent = '🤖 AI Kazandı!';
+        resultEl.style.color = '#FF7043';
+    }
+}
+
+function resetJoinDots() {
+    startJoinDots(joinDotsState.difficulty);
+}
+
+function backToJoinDotsMenu() {
+    document.getElementById('joinDotsGame').style.display = 'none';
+    document.getElementById('joinDotsGameOver').style.display = 'none';
+    document.getElementById('joinDotsMenu').style.display = 'flex';
+}
+
+// ============================================
+// END JOIN DOTS GAME
+// ============================================
+
 // PWA Installation
 let deferredPrompt;
 const pwaPopup = document.getElementById('pwaInstallPopup');
